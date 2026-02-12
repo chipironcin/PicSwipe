@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro Photo Sorter</title>
+    <style>
+        :root { --keep: #4caf50; --discard: #f44336; --maybe: #ff9800; --bg: #121212; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        /* Stats Header */
+        header { padding: 10px 20px; background: #1f1f1f; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        .stats { display: flex; gap: 20px; font-size: 0.9rem; }
+        .stat-item { display: flex; flex-direction: column; align-items: center; }
+        .stat-val { font-weight: bold; font-size: 1.1rem; }
+
+        /* Main Viewport */
+        main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; background: #000; }
+        
+        #stage-container { position: relative; transition: transform 0.3s ease; cursor: zoom-in; max-width: 95%; max-height: 80%; display: flex; align-items: center; justify-content: center; }
+        #main-stage { max-width: 100%; max-height: 100%; border-radius: 4px; transition: transform 0.2s; }
+        #stage-container.zoomed { cursor: zoom-out; }
+        #stage-container.zoomed #main-stage { transform: scale(2.5); z-index: 100; }
+
+        /* Controls Overlay */
+        .controls { position: absolute; bottom: 20px; display: flex; gap: 10px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 30px; backdrop-filter: blur(5px); }
+        .btn { padding: 8px 16px; border-radius: 20px; border: none; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+        .btn-k { background: var(--keep); }
+        .btn-m { background: var(--maybe); }
+        .btn-d { background: var(--discard); }
+        
+        /* Thumbnail Bar */
+        .thumbnail-bar { height: 110px; background: #111; display: flex; gap: 8px; padding: 10px; overflow-x: auto; border-top: 1px solid #333; align-items: center; }
+        .thumb-wrapper { position: relative; flex-shrink: 0; }
+        .thumb { height: 80px; width: 80px; object-fit: contain; background: #222; opacity: 0.6; cursor: pointer; border: 2px solid transparent; border-radius: 4px; }
+        .thumb.active { opacity: 1; border-color: #007bff; transform: scale(1.05); }
+        .thumb.keep { border-bottom: 5px solid var(--keep); }
+        .thumb.discard { border-bottom: 5px solid var(--discard); }
+        .thumb.maybe { border-bottom: 5px solid var(--maybe); }
+
+        .badge { position: absolute; top: 10%; left: 50%; transform: translate(-50%, -50%) rotate(-10deg); font-size: 3rem; font-weight: 900; text-transform: uppercase; display: none; padding: 10px 30px; border: 6px solid; border-radius: 12px; z-index: 50; pointer-events: none; }
+        .hint { font-size: 0.7rem; color: #888; text-align: center; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="display: flex; align-items: center; gap: 15px;">
+        <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
+        <button class="btn" style="background:#444" onclick="document.getElementById('folder-input').click()">Open Folder</button>
+        <div class="stats">
+            <div class="stat-item"><span>Total</span><span id="stat-total" class="stat-val">0</span></div>
+            <div class="stat-item" style="color: var(--keep)"><span>Keep</span><span id="stat-keep" class="stat-val">0</span></div>
+            <div class="stat-item" style="color: var(--maybe)"><span>Maybe</span><span id="stat-maybe" class="stat-val">0</span></div>
+            <div class="stat-item" style="color: var(--discard)"><span>Discard</span><span id="stat-discard" class="stat-val">0</span></div>
+            <div class="stat-item" style="color: #007bff"><span>Left</span><span id="stat-left" class="stat-val">0</span></div>
+        </div>
+    </div>
+    <button id="finish-btn" class="btn btn-k" disabled>Finish & Get Script</button>
+</header>
+
+<main>
+    <div id="badge" class="badge"></div>
+    <div id="stage-container" onclick="toggleZoom()">
+        <img id="main-stage" src="" alt="">
+    </div>
+    
+    <div class="controls">
+        <button class="btn btn-k" onclick="decide('keep')">A - Keep</button>
+        <button class="btn btn-m" onclick="decide('maybe')">W - Maybe</button>
+        <button class="btn btn-d" onclick="decide('discard')">D - Discard</button>
+        <button class="btn" style="background:#666" onclick="undo()">S - Undo</button>
+    </div>
+</main>
+
+<div id="thumb-bar" class="thumbnail-bar"></div>
+
+<script>
+    let images = [];
+    let currentIndex = 0;
+    let history = []; // Stack for undo
+
+    const folderInput = document.getElementById('folder-input');
+    const mainStage = document.getElementById('main-stage');
+    const stageCont = document.getElementById('stage-container');
+    const thumbBar = document.getElementById('thumb-bar');
+    const finishBtn = document.getElementById('finish-btn');
+    const badge = document.getElementById('badge');
+
+    folderInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files).filter(f => f.name.toLowerCase().endsWith('.jpg') || f.name.toLowerCase().endsWith('.jpeg'));
+        if (files.length === 0) return alert("No JPGs found.");
+
+        images = files.map(f => ({ file: f, name: f.name, url: URL.createObjectURL(f), decision: null }));
+        finishBtn.disabled = false;
+        currentIndex = 0;
+        history = [];
+        updateStats();
+        renderThumbs();
+        showImage(0);
+    });
+
+    function showImage(index) {
+        if (index < 0 || index >= images.length) return;
+        currentIndex = index;
+        mainStage.src = images[currentIndex].url;
+        stageCont.classList.remove('zoomed');
+        updateUI();
+        
+        // Center the active thumbnail
+        const activeThumb = document.querySelector('.thumb.active');
+        if (activeThumb) activeThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+
+    function toggleZoom() {
+        stageCont.classList.toggle('zoomed');
+    }
+
+    function decide(type) {
+        if (!images[currentIndex]) return;
+        
+        // Save to history before changing
+        history.push({ index: currentIndex, prevDecision: images[currentIndex].decision });
+        
+        images[currentIndex].decision = type;
+        updateUI();
+        updateStats();
+        
+        if (currentIndex < images.length - 1) {
+            setTimeout(() => showImage(currentIndex + 1), 100);
+        }
+    }
+
+    function undo() {
+        if (history.length === 0) return;
+        const lastAction = history.pop();
+        images[lastAction.index].decision = lastAction.prevDecision;
+        showImage(lastAction.index);
+        updateStats();
+    }
+
+    function updateStats() {
+        const total = images.length;
+        const keep = images.filter(i => i.decision === 'keep').length;
+        const maybe = images.filter(i => i.decision === 'maybe').length;
+        const discard = images.filter(i => i.decision === 'discard').length;
+        const left = images.filter(i => i.decision === null).length;
+
+        document.getElementById('stat-total').innerText = total;
+        document.getElementById('stat-keep').innerText = keep;
+        document.getElementById('stat-maybe').innerText = maybe;
+        document.getElementById('stat-discard').innerText = discard;
+        document.getElementById('stat-left').innerText = left;
+    }
+
+    function updateUI() {
+        const img = images[currentIndex];
+        if (img.decision) {
+            badge.innerText = img.decision;
+            badge.style.borderColor = badge.style.color = `var(--${img.decision})`;
+            badge.style.display = 'block';
+        } else {
+            badge.style.display = 'none';
+        }
+        
+        // Update thumbnail classes without full re-render for performance
+        const thumbs = document.querySelectorAll('.thumb');
+        thumbs.forEach((t, i) => {
+            t.className = `thumb ${i === currentIndex ? 'active' : ''} ${images[i].decision || ''}`;
+        });
+    }
+
+    function renderThumbs() {
+        thumbBar.innerHTML = '';
+        images.forEach((img, i) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'thumb-wrapper';
+            const el = document.createElement('img');
+            el.src = img.url;
+            el.className = `thumb ${img.decision || ''}`;
+            el.onclick = () => showImage(i);
+            wrapper.appendChild(el);
+            thumbBar.appendChild(wrapper);
+        });
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (images.length === 0) return;
+        const key = e.key.toLowerCase();
+        
+        if (key === 'a') decide('keep');
+        if (key === 'w') decide('maybe');
+        if (key === 'd') decide('discard');
+        if (key === 's') undo();
+        if (e.key === 'ArrowLeft') showImage(currentIndex - 1);
+        if (e.key === 'ArrowRight') showImage(currentIndex + 1);
+        if (key === 'z') toggleZoom();
+    });
+
+    finishBtn.onclick = () => {
+        const discarded = images.filter(i => i.decision === 'discard').map(i => i.name);
+        const maybes = images.filter(i => i.decision === 'maybe').map(i => i.name);
+        
+        if (discarded.length === 0 && maybes.length === 0) return alert("Nothing to sort!");
+
+        const isWindows = navigator.platform.indexOf('Win') > -1;
+        let script = isWindows ? "@echo off\nmkdir discard 2>nul\nmkdir maybe 2>nul\n" : "mkdir -p discard maybe\n";
+        
+        discarded.forEach(n => script += isWindows ? `move "${n}" discard\\\n` : `mv "${n}" discard/\n`);
+        maybes.forEach(n => script += isWindows ? `move "${n}" maybe\\\n` : `mv "${n}" maybe/\n`);
+
+        const blob = new Blob([script], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = isWindows ? "cleanup.bat" : "cleanup.sh";
+        a.click();
+        
+        alert("Script downloaded! Place it in the folder and run it to move files.");
+    };
+</script>
+</body>
+</html>
