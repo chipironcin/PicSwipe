@@ -2,220 +2,323 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Pro Photo Sorter</title>
+    <title>PicSwipe</title>
     <style>
-        :root { --keep: #4caf50; --discard: #f44336; --maybe: #ff9800; --bg: #121212; }
+        :root { --keep: #4caf50; --discard: #f44336; --maybe: #ff9800; --bg: #121212; --panel: #1f1f1f; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        
-        /* Stats Header */
-        header { padding: 10px 20px; background: #1f1f1f; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
-        .stats { display: flex; gap: 20px; font-size: 0.9rem; }
-        .stat-item { display: flex; flex-direction: column; align-items: center; }
-        .stat-val { font-weight: bold; font-size: 1.1rem; }
 
-        /* Main Viewport */
-        main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; background: #000; }
-        
-        #stage-container { position: relative; transition: transform 0.3s ease; cursor: zoom-in; max-width: 95%; max-height: 80%; display: flex; align-items: center; justify-content: center; }
-        #main-stage { max-width: 100%; max-height: 100%; border-radius: 4px; transition: transform 0.2s; }
-        #stage-container.zoomed { cursor: zoom-out; }
-        #stage-container.zoomed #main-stage { transform: scale(2.5); z-index: 100; }
+        /* Header */
+        header { padding: 0 20px; height: 50px; flex-shrink: 0; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        .header-left { display: flex; align-items: center; gap: 15px; }
 
-        /* Controls Overlay */
-        .controls { position: absolute; bottom: 20px; display: flex; gap: 10px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 30px; backdrop-filter: blur(5px); }
-        .btn { padding: 8px 16px; border-radius: 20px; border: none; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+        .stats { display: flex; gap: 15px; font-size: 0.85rem; background: #2a2a2a; padding: 5px 15px; border-radius: 4px; border: 1px solid #333; }
+        .stat-item { display: flex; gap: 5px; align-items: center; }
+        .stat-val { font-weight: bold; }
+
+        .status-indicator { font-weight: 900; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; width: 120px; text-align: center; }
+
+        /* Main Image Area */
+        main { flex: 1; position: relative; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        #render-stage { cursor: zoom-in; max-width: 100%; max-height: 100%; display: block; background: #000; }
+
+        /* New Dedicated Toolbar (Moved from floating) */
+        .toolbar {
+            height: 50px;
+            flex-shrink: 0;
+            background: #181818;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            border-top: 1px solid #333;
+        }
+
+        .btn { padding: 6px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; color: white; transition: all 0.1s; font-size: 0.9rem; }
+        .btn:active { transform: scale(0.96); }
         .btn-k { background: var(--keep); }
-        .btn-m { background: var(--maybe); }
+        .btn-m { background: var(--maybe); color: #000; }
         .btn-d { background: var(--discard); }
-        
-        /* Thumbnail Bar */
-        .thumbnail-bar { height: 110px; background: #111; display: flex; gap: 8px; padding: 10px; overflow-x: auto; border-top: 1px solid #333; align-items: center; }
-        .thumb-wrapper { position: relative; flex-shrink: 0; }
-        .thumb { height: 80px; width: 80px; object-fit: contain; background: #222; opacity: 0.6; cursor: pointer; border: 2px solid transparent; border-radius: 4px; }
-        .thumb.active { opacity: 1; border-color: #007bff; transform: scale(1.05); }
-        .thumb.keep { border-bottom: 5px solid var(--keep); }
-        .thumb.discard { border-bottom: 5px solid var(--discard); }
-        .thumb.maybe { border-bottom: 5px solid var(--maybe); }
 
-        .badge { position: absolute; top: 10%; left: 50%; transform: translate(-50%, -50%) rotate(-10deg); font-size: 3rem; font-weight: 900; text-transform: uppercase; display: none; padding: 10px 30px; border: 6px solid; border-radius: 12px; z-index: 50; pointer-events: none; }
-        .hint { font-size: 0.7rem; color: #888; text-align: center; margin-top: 5px; }
+        /* Thumbnail Bar */
+        .thumbnail-bar { height: 100px; flex-shrink: 0; background: #111; display: flex; gap: 4px; padding: 5px; overflow-x: auto; border-top: 1px solid #333; align-items: center; }
+        .thumb-wrapper { flex-shrink: 0; width: 80px; height: 80px; background: #222; border-radius: 3px; overflow: hidden; cursor: pointer; border: 2px solid transparent; opacity: 0.6; transition: all 0.1s; }
+        .thumb-wrapper.active { border-color: #fff; opacity: 1; transform: scale(1.02); z-index: 10; }
+
+        .thumb-wrapper.keep { border-bottom: 5px solid var(--keep); opacity: 0.8; }
+        .thumb-wrapper.discard { border-bottom: 5px solid var(--discard); opacity: 0.5; filter: grayscale(1); }
+        .thumb-wrapper.maybe { border-bottom: 5px solid var(--maybe); opacity: 0.9; }
+
+        canvas.thumb-canvas { width: 100%; height: 100%; display: block; }
     </style>
 </head>
 <body>
 
 <header>
-    <div style="display: flex; align-items: center; gap: 15px;">
+    <div class="header-left">
         <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
         <button class="btn" style="background:#444" onclick="document.getElementById('folder-input').click()">Open Folder</button>
+
         <div class="stats">
-            <div class="stat-item"><span>Total</span><span id="stat-total" class="stat-val">0</span></div>
-            <div class="stat-item" style="color: var(--keep)"><span>Keep</span><span id="stat-keep" class="stat-val">0</span></div>
-            <div class="stat-item" style="color: var(--maybe)"><span>Maybe</span><span id="stat-maybe" class="stat-val">0</span></div>
-            <div class="stat-item" style="color: var(--discard)"><span>Discard</span><span id="stat-discard" class="stat-val">0</span></div>
-            <div class="stat-item" style="color: #007bff"><span>Left</span><span id="stat-left" class="stat-val">0</span></div>
+            <div class="stat-item" style="color:#aaa">Total: <span id="stat-total" class="stat-val">0</span></div>
+            <div class="stat-item" style="color:#aaa">Left: <span id="stat-remain" class="stat-val">0</span></div>
+            <div style="width:1px; background:#444; height:15px;"></div>
+            <div class="stat-item" style="color:var(--keep)">Keep: <span id="stat-keep" class="stat-val">0</span></div>
+            <div class="stat-item" style="color:var(--maybe)">Maybe: <span id="stat-maybe" class="stat-val">0</span></div>
+            <div class="stat-item" style="color:var(--discard)">Discard: <span id="stat-discard" class="stat-val">0</span></div>
         </div>
     </div>
+
+    <div id="status-indicator" class="status-indicator"></div>
+
     <button id="finish-btn" class="btn btn-k" disabled>Finish & Get Script</button>
 </header>
 
-<main>
-    <div id="badge" class="badge"></div>
-    <div id="stage-container" onclick="toggleZoom()">
-        <img id="main-stage" src="" alt="">
-    </div>
-    
-    <div class="controls">
-        <button class="btn btn-k" onclick="decide('keep')">A - Keep</button>
-        <button class="btn btn-m" onclick="decide('maybe')">W - Maybe</button>
-        <button class="btn btn-d" onclick="decide('discard')">D - Discard</button>
-        <button class="btn" style="background:#666" onclick="undo()">S - Undo</button>
-    </div>
+<main id="main-container">
+    <canvas id="render-stage"></canvas>
 </main>
+
+<div class="toolbar">
+    <button class="btn btn-k" onclick="decide('keep')">A - Keep</button>
+    <button class="btn btn-m" onclick="decide('maybe')">W - Maybe</button>
+    <button class="btn btn-d" onclick="decide('discard')">D - Discard</button>
+    <div style="width:1px; background:#444; height:20px; margin:0 10px;"></div>
+    <button class="btn" style="background:#555" onclick="undo()">S - Undo</button>
+</div>
 
 <div id="thumb-bar" class="thumbnail-bar"></div>
 
 <script>
     let images = [];
     let currentIndex = 0;
-    let history = []; // Stack for undo
+    let history = [];
+    let isZoomed = false;
+    let currentImg = new Image();
+    let currentUrl = null;
 
     const folderInput = document.getElementById('folder-input');
-    const mainStage = document.getElementById('main-stage');
-    const stageCont = document.getElementById('stage-container');
     const thumbBar = document.getElementById('thumb-bar');
-    const finishBtn = document.getElementById('finish-btn');
-    const badge = document.getElementById('badge');
+    const canvas = document.getElementById('render-stage');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const container = document.getElementById('main-container');
+    const statusEl = document.getElementById('status-indicator');
 
-    folderInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files).filter(f => f.name.toLowerCase().endsWith('.jpg') || f.name.toLowerCase().endsWith('.jpeg'));
-        if (files.length === 0) return alert("No JPGs found.");
+    function draw(mouseX, mouseY) {
+        if (!currentImg.complete || currentImg.naturalWidth === 0) return;
 
-        images = files.map(f => ({ file: f, name: f.name, url: URL.createObjectURL(f), decision: null }));
-        finishBtn.disabled = false;
-        currentIndex = 0;
-        history = [];
-        updateStats();
-        renderThumbs();
-        showImage(0);
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        const cw = canvas.width, ch = canvas.height;
+        const iw = currentImg.naturalWidth, ih = currentImg.naturalHeight;
+
+        const ratio = Math.min(cw / iw, ch / ih);
+        const nw = iw * ratio;
+        const nh = ih * ratio;
+
+        const left = (cw - nw) / 2;
+        const top = (ch - nh) / 2;
+
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, cw, ch);
+
+        if (!isZoomed) {
+            ctx.drawImage(currentImg, left, top, nw, nh);
+        } else {
+            const zoomLevel = 3.5;
+            const normX = Math.max(0, Math.min(1, (mouseX - left) / nw));
+            const normY = Math.max(0, Math.min(1, (mouseY - top) / nh));
+
+            const znw = nw * zoomLevel;
+            const znh = nh * zoomLevel;
+            const offsetX = (normX * znw) - (mouseX);
+            const offsetY = (normY * znh) - (mouseY);
+
+            ctx.drawImage(currentImg, -offsetX, -offsetY, znw, znh);
+        }
+    }
+
+    async function showImage(index) {
+        if (index < 0 || index >= images.length) return;
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
+
+        currentIndex = index;
+        isZoomed = false;
+
+        currentUrl = URL.createObjectURL(images[currentIndex].file);
+        currentImg = new Image();
+        currentImg.onload = () => {
+            draw(canvas.width / 2, canvas.height / 2);
+            updateUI();
+        };
+        currentImg.src = currentUrl;
+
+        const thumb = document.getElementById(`wrapper-${index}`);
+        if(thumb) {
+            thumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+    }
+
+    async function loadThumbnails() {
+        const batchSize = 5;
+        for (let i = 0; i < images.length; i+=batchSize) {
+            const batch = images.slice(i, i + batchSize);
+            await Promise.all(batch.map((_, idx) => {
+                const globalIndex = i + idx;
+                const tc = document.getElementById(`canvas-${globalIndex}`);
+                if (!tc) return Promise.resolve();
+
+                return new Promise(resolve => {
+                    const img = new Image();
+                    const url = URL.createObjectURL(images[globalIndex].file);
+                    img.onload = () => {
+                        const tctx = tc.getContext('2d');
+                        tc.width = 100; tc.height = 100;
+
+                        // --- UNIFORM CROP LOGIC (COVER) ---
+                        const sWidth = img.naturalWidth;
+                        const sHeight = img.naturalHeight;
+                        const minDim = Math.min(sWidth, sHeight);
+
+                        // Calculate start points to center the crop
+                        const sx = (sWidth - minDim) / 2;
+                        const sy = (sHeight - minDim) / 2;
+
+                        // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+                        tctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 100, 100);
+
+                        URL.revokeObjectURL(url);
+                        resolve();
+                    };
+                    img.onerror = resolve;
+                    img.src = url;
+                });
+            }));
+            if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+        isZoomed = !isZoomed;
+        const rect = canvas.getBoundingClientRect();
+        draw(e.clientX - rect.left, e.clientY - rect.top);
     });
 
-    function showImage(index) {
-        if (index < 0 || index >= images.length) return;
-        currentIndex = index;
-        mainStage.src = images[currentIndex].url;
-        stageCont.classList.remove('zoomed');
-        updateUI();
-        
-        // Center the active thumbnail
-        const activeThumb = document.querySelector('.thumb.active');
-        if (activeThumb) activeThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-    }
+    canvas.addEventListener('mousemove', (e) => {
+        if (isZoomed) {
+            const rect = canvas.getBoundingClientRect();
+            window.requestAnimationFrame(() => draw(e.clientX - rect.left, e.clientY - rect.top));
+        }
+    });
 
-    function toggleZoom() {
-        stageCont.classList.toggle('zoomed');
-    }
+    window.addEventListener('resize', () => draw(canvas.width / 2, canvas.height / 2));
+
+    folderInput.addEventListener('change', (e) => {
+        const rawFiles = Array.from(e.target.files);
+
+        const files = rawFiles.filter(f => {
+            const isImage = /\.(jpe?g|png|webp|jfif)$/i.test(f.name);
+            const parts = f.webkitRelativePath.split('/');
+            const isRootLevel = parts.length === 2;
+            return isImage && isRootLevel;
+        }).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+
+        if (files.length === 0) {
+            alert("No images found in the top-level of this folder.");
+            return;
+        }
+
+        images = files.map(file => ({ file, decision: null }));
+        thumbBar.innerHTML = '';
+
+        history = [];
+        document.getElementById('finish-btn').disabled = false;
+
+        const fragment = document.createDocumentFragment();
+        images.forEach((_, i) => {
+            const w = document.createElement('div');
+            w.className = 'thumb-wrapper';
+            w.id = `wrapper-${i}`;
+            w.onclick = () => showImage(i);
+            w.innerHTML = `<canvas class="thumb-canvas" id="canvas-${i}"></canvas>`;
+            fragment.appendChild(w);
+        });
+        thumbBar.appendChild(fragment);
+
+        showImage(0);
+        loadThumbnails();
+    });
 
     function decide(type) {
         if (!images[currentIndex]) return;
-        
-        // Save to history before changing
         history.push({ index: currentIndex, prevDecision: images[currentIndex].decision });
-        
         images[currentIndex].decision = type;
         updateUI();
-        updateStats();
-        
-        if (currentIndex < images.length - 1) {
-            setTimeout(() => showImage(currentIndex + 1), 100);
-        }
+        if (currentIndex < images.length - 1) showImage(currentIndex + 1);
     }
 
     function undo() {
         if (history.length === 0) return;
-        const lastAction = history.pop();
-        images[lastAction.index].decision = lastAction.prevDecision;
-        showImage(lastAction.index);
-        updateStats();
+        const last = history.pop();
+        images[last.index].decision = last.prevDecision;
+        showImage(last.index);
     }
 
-    function updateStats() {
+    function updateUI() {
+        const item = images[currentIndex];
+        statusEl.innerText = item.decision ? item.decision : "";
+        statusEl.style.color = item.decision ? `var(--${item.decision})` : 'transparent';
+
+        document.querySelectorAll('.thumb-wrapper').forEach((w, i) => {
+            w.className = `thumb-wrapper ${i === currentIndex ? 'active' : ''} ${images[i].decision || ''}`;
+        });
+
         const total = images.length;
         const keep = images.filter(i => i.decision === 'keep').length;
         const maybe = images.filter(i => i.decision === 'maybe').length;
         const discard = images.filter(i => i.decision === 'discard').length;
-        const left = images.filter(i => i.decision === null).length;
+        const categorized = keep + maybe + discard;
 
         document.getElementById('stat-total').innerText = total;
         document.getElementById('stat-keep').innerText = keep;
         document.getElementById('stat-maybe').innerText = maybe;
         document.getElementById('stat-discard').innerText = discard;
-        document.getElementById('stat-left').innerText = left;
-    }
-
-    function updateUI() {
-        const img = images[currentIndex];
-        if (img.decision) {
-            badge.innerText = img.decision;
-            badge.style.borderColor = badge.style.color = `var(--${img.decision})`;
-            badge.style.display = 'block';
-        } else {
-            badge.style.display = 'none';
-        }
-        
-        // Update thumbnail classes without full re-render for performance
-        const thumbs = document.querySelectorAll('.thumb');
-        thumbs.forEach((t, i) => {
-            t.className = `thumb ${i === currentIndex ? 'active' : ''} ${images[i].decision || ''}`;
-        });
-    }
-
-    function renderThumbs() {
-        thumbBar.innerHTML = '';
-        images.forEach((img, i) => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'thumb-wrapper';
-            const el = document.createElement('img');
-            el.src = img.url;
-            el.className = `thumb ${img.decision || ''}`;
-            el.onclick = () => showImage(i);
-            wrapper.appendChild(el);
-            thumbBar.appendChild(wrapper);
-        });
+        document.getElementById('stat-remain').innerText = total - categorized;
     }
 
     window.addEventListener('keydown', (e) => {
         if (images.length === 0) return;
-        const key = e.key.toLowerCase();
-        
-        if (key === 'a') decide('keep');
-        if (key === 'w') decide('maybe');
-        if (key === 'd') decide('discard');
-        if (key === 's') undo();
+        const k = e.key.toLowerCase();
+
+        if (k === 'a') decide('keep');
+        if (k === 'w') decide('maybe');
+        if (k === 'd') decide('discard');
+        if (k === 's') undo();
+
+        if (k === ' ') {
+            e.preventDefault();
+            isZoomed = !isZoomed;
+            draw(canvas.width/2, canvas.height/2);
+        }
         if (e.key === 'ArrowLeft') showImage(currentIndex - 1);
         if (e.key === 'ArrowRight') showImage(currentIndex + 1);
-        if (key === 'z') toggleZoom();
     });
 
-    finishBtn.onclick = () => {
-        const discarded = images.filter(i => i.decision === 'discard').map(i => i.name);
-        const maybes = images.filter(i => i.decision === 'maybe').map(i => i.name);
-        
-        if (discarded.length === 0 && maybes.length === 0) return alert("Nothing to sort!");
+    document.getElementById('finish-btn').onclick = () => {
+        const discarded = images.filter(i => i.decision === 'discard').map(i => i.file.name);
+        const maybes = images.filter(i => i.decision === 'maybe').map(i => i.file.name);
 
-        const isWindows = navigator.platform.indexOf('Win') > -1;
-        let script = isWindows ? "@echo off\nmkdir discard 2>nul\nmkdir maybe 2>nul\n" : "mkdir -p discard maybe\n";
-        
-        discarded.forEach(n => script += isWindows ? `move "${n}" discard\\\n` : `mv "${n}" discard/\n`);
-        maybes.forEach(n => script += isWindows ? `move "${n}" maybe\\\n` : `mv "${n}" maybe/\n`);
+        let script = "#!/bin/bash\nmkdir -p discard\nmkdir -p maybe\n";
 
-        const blob = new Blob([script], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
+        if(discarded.length > 0) {
+            script += "\n# Discarded Images\n" + discarded.map(n => `mv "${n}" discard/`).join("\n");
+        }
+
+        if(maybes.length > 0) {
+            script += "\n\n# Maybe Images\n" + maybes.map(n => `mv "${n}" maybe/`).join("\n");
+        }
+
         const a = document.createElement('a');
-        a.href = url;
-        a.download = isWindows ? "cleanup.bat" : "cleanup.sh";
-        a.click();
-        
-        alert("Script downloaded! Place it in the folder and run it to move files.");
+        a.href = URL.createObjectURL(new Blob([script], {type:'text/plain'}));
+        a.download = "cleanup.sh"; a.click();
     };
 </script>
 </body>

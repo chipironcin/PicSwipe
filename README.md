@@ -18,7 +18,7 @@ Organize your photos with a swipe-style interface: keep, maybe, or discard image
 -   **Thumbnail overview**: see all your images at a glance.
     
 -   **Undo support**: easily revert a previous decision.
-    
+
 -   **Script generation**: generates a platform-specific script (`.bat` for Windows, `.sh` for macOS/Linux) to move files into `keep`, `maybe`, and `discard` folders.
     
 -   **Works in major browsers**: latest versions of Chrome, Edge, Firefox, and Safari.
