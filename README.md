@@ -19,6 +19,10 @@ Organize your photos with a swipe-style interface: keep, maybe, or discard image
     
 -   **Undo support**: easily revert a previous decision.
 
+-   **Fast loading**: clever usage of resources to load images/thumbnails on demand
+
+-   **Zoom implemented**: zoom in easily and move your mouse to explore tiny details
+
 -   **Script generation**: generates a platform-specific script (`.bat` for Windows, `.sh` for macOS/Linux) to move files into `keep`, `maybe`, and `discard` folders.
     
 -   **Works in major browsers**: latest versions of Chrome, Edge, Firefox, and Safari.

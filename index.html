@@ -7,7 +7,6 @@
         :root { --keep: #4caf50; --discard: #f44336; --maybe: #ff9800; --bg: #121212; --panel: #1f1f1f; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-        /* Header */
         header { padding: 0 20px; height: 50px; flex-shrink: 0; background: var(--panel); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
         .header-left { display: flex; align-items: center; gap: 15px; }
 
@@ -17,33 +16,20 @@
 
         .status-indicator { font-weight: 900; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; width: 120px; text-align: center; }
 
-        /* Main Image Area */
         main { flex: 1; position: relative; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        #render-stage { cursor: zoom-in; max-width: 100%; max-height: 100%; display: block; background: #000; }
+        #render-stage { cursor: zoom-in; max-width: 100%; max-height: 100%; display: block; }
 
-        /* New Dedicated Toolbar (Moved from floating) */
-        .toolbar {
-            height: 50px;
-            flex-shrink: 0;
-            background: #181818;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-            border-top: 1px solid #333;
-        }
+        .toolbar { height: 50px; flex-shrink: 0; background: #181818; display: flex; align-items: center; justify-content: center; gap: 15px; border-top: 1px solid #333; }
 
-        .btn { padding: 6px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; color: white; transition: all 0.1s; font-size: 0.9rem; }
+        .btn { padding: 6px 20px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; color: white; transition: transform 0.1s; font-size: 0.9rem; }
         .btn:active { transform: scale(0.96); }
         .btn-k { background: var(--keep); }
         .btn-m { background: var(--maybe); color: #000; }
         .btn-d { background: var(--discard); }
 
-        /* Thumbnail Bar */
-        .thumbnail-bar { height: 100px; flex-shrink: 0; background: #111; display: flex; gap: 4px; padding: 5px; overflow-x: auto; border-top: 1px solid #333; align-items: center; }
-        .thumb-wrapper { flex-shrink: 0; width: 80px; height: 80px; background: #222; border-radius: 3px; overflow: hidden; cursor: pointer; border: 2px solid transparent; opacity: 0.6; transition: all 0.1s; }
+        .thumbnail-bar { height: 100px; flex-shrink: 0; background: #111; display: flex; gap: 4px; padding: 5px; overflow-x: auto; border-top: 1px solid #333; align-items: center; scroll-behavior: smooth; }
+        .thumb-wrapper { flex-shrink: 0; width: 80px; height: 80px; background: #222; border-radius: 3px; overflow: hidden; cursor: pointer; border: 2px solid transparent; opacity: 0.6; }
         .thumb-wrapper.active { border-color: #fff; opacity: 1; transform: scale(1.02); z-index: 10; }
-
         .thumb-wrapper.keep { border-bottom: 5px solid var(--keep); opacity: 0.8; }
         .thumb-wrapper.discard { border-bottom: 5px solid var(--discard); opacity: 0.5; filter: grayscale(1); }
         .thumb-wrapper.maybe { border-bottom: 5px solid var(--maybe); opacity: 0.9; }
@@ -67,9 +53,7 @@
             <div class="stat-item" style="color:var(--discard)">Discard: <span id="stat-discard" class="stat-val">0</span></div>
         </div>
     </div>
-
     <div id="status-indicator" class="status-indicator"></div>
-
     <button id="finish-btn" class="btn btn-k" disabled>Finish & Get Script</button>
 </header>
 
@@ -90,10 +74,14 @@
 <script>
     let images = [];
     let currentIndex = 0;
+    let lastActiveIndex = 0;
     let history = [];
     let isZoomed = false;
     let currentImg = new Image();
     let currentUrl = null;
+
+    // State tracking for O(1) stats updates
+    const counts = { keep: 0, maybe: 0, discard: 0, total: 0 };
 
     const folderInput = document.getElementById('folder-input');
     const thumbBar = document.getElementById('thumb-bar');
@@ -102,20 +90,30 @@
     const container = document.getElementById('main-container');
     const statusEl = document.getElementById('status-indicator');
 
-    function draw(mouseX, mouseY) {
-        if (!currentImg.complete || currentImg.naturalWidth === 0) return;
+    // Optimization: Lazy Load Thumbnails using Intersection Observer
+    const thumbObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const idx = entry.target.dataset.index;
+                renderThumb(idx);
+                thumbObserver.unobserve(entry.target);
+            }
+        });
+    }, { root: thumbBar, rootMargin: '100px' });
 
-        canvas.width = container.clientWidth;
-        canvas.height = container.clientHeight;
+    function draw(mouseX = canvas.width/2, mouseY = canvas.height/2) {
+        if (!currentImg.complete) return;
+
+        if (canvas.width !== container.clientWidth || canvas.height !== container.clientHeight) {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
         const cw = canvas.width, ch = canvas.height;
         const iw = currentImg.naturalWidth, ih = currentImg.naturalHeight;
-
         const ratio = Math.min(cw / iw, ch / ih);
-        const nw = iw * ratio;
-        const nh = ih * ratio;
-
-        const left = (cw - nw) / 2;
-        const top = (ch - nh) / 2;
+        const nw = iw * ratio, nh = ih * ratio;
+        const left = (cw - nw) / 2, top = (ch - nh) / 2;
 
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, cw, ch);
@@ -126,76 +124,130 @@
             const zoomLevel = 3.5;
             const normX = Math.max(0, Math.min(1, (mouseX - left) / nw));
             const normY = Math.max(0, Math.min(1, (mouseY - top) / nh));
-
-            const znw = nw * zoomLevel;
-            const znh = nh * zoomLevel;
-            const offsetX = (normX * znw) - (mouseX);
-            const offsetY = (normY * znh) - (mouseY);
-
-            ctx.drawImage(currentImg, -offsetX, -offsetY, znw, znh);
+            const znw = nw * zoomLevel, znh = nh * zoomLevel;
+            ctx.drawImage(currentImg, -(normX * znw - mouseX), -(normY * znh - mouseY), znw, znh);
         }
     }
 
     async function showImage(index) {
         if (index < 0 || index >= images.length) return;
-        if (currentUrl) URL.revokeObjectURL(currentUrl);
 
+        // Targeted UI update: Only update the two elements involved
+        document.getElementById(`wrapper-${lastActiveIndex}`)?.classList.remove('active');
+        const nextThumb = document.getElementById(`wrapper-${index}`);
+        nextThumb?.classList.add('active');
+
+        lastActiveIndex = index;
         currentIndex = index;
         isZoomed = false;
 
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
         currentUrl = URL.createObjectURL(images[currentIndex].file);
+
         currentImg = new Image();
         currentImg.onload = () => {
-            draw(canvas.width / 2, canvas.height / 2);
-            updateUI();
+            draw();
+            updateLabels();
         };
         currentImg.src = currentUrl;
 
-        const thumb = document.getElementById(`wrapper-${index}`);
-        if(thumb) {
-            thumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-        }
+        if(nextThumb) nextThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     }
 
-    async function loadThumbnails() {
-        const batchSize = 5;
-        for (let i = 0; i < images.length; i+=batchSize) {
-            const batch = images.slice(i, i + batchSize);
-            await Promise.all(batch.map((_, idx) => {
-                const globalIndex = i + idx;
-                const tc = document.getElementById(`canvas-${globalIndex}`);
-                if (!tc) return Promise.resolve();
+    function renderThumb(idx) {
+        const tc = document.getElementById(`canvas-${idx}`);
+        if (!tc || tc.dataset.rendered) return;
 
-                return new Promise(resolve => {
-                    const img = new Image();
-                    const url = URL.createObjectURL(images[globalIndex].file);
-                    img.onload = () => {
-                        const tctx = tc.getContext('2d');
-                        tc.width = 100; tc.height = 100;
-
-                        // --- UNIFORM CROP LOGIC (COVER) ---
-                        const sWidth = img.naturalWidth;
-                        const sHeight = img.naturalHeight;
-                        const minDim = Math.min(sWidth, sHeight);
-
-                        // Calculate start points to center the crop
-                        const sx = (sWidth - minDim) / 2;
-                        const sy = (sHeight - minDim) / 2;
-
-                        // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
-                        tctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 100, 100);
-
-                        URL.revokeObjectURL(url);
-                        resolve();
-                    };
-                    img.onerror = resolve;
-                    img.src = url;
-                });
-            }));
-            if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
-        }
+        const img = new Image();
+        const url = URL.createObjectURL(images[idx].file);
+        img.onload = () => {
+            const tctx = tc.getContext('2d', { alpha: false });
+            tc.width = 100; tc.height = 100;
+            const minDim = Math.min(img.naturalWidth, img.naturalHeight);
+            const sx = (img.naturalWidth - minDim) / 2;
+            const sy = (img.naturalHeight - minDim) / 2;
+            tctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 100, 100);
+            URL.revokeObjectURL(url);
+            tc.dataset.rendered = "true";
+        };
+        img.src = url;
     }
 
+    function updateLabels() {
+        const item = images[currentIndex];
+        statusEl.innerText = item.decision || "";
+        statusEl.style.color = item.decision ? `var(--${item.decision})` : 'transparent';
+
+        document.getElementById('stat-remain').innerText = counts.total - (counts.keep + counts.maybe + counts.discard);
+        document.getElementById('stat-keep').innerText = counts.keep;
+        document.getElementById('stat-maybe').innerText = counts.maybe;
+        document.getElementById('stat-discard').innerText = counts.discard;
+    }
+
+    function decide(type) {
+        const item = images[currentIndex];
+        if (!item) return;
+
+        history.push({ index: currentIndex, prevDecision: item.decision });
+
+        // Incremental count update
+        if (item.decision) counts[item.decision]--;
+        item.decision = type;
+        counts[type]++;
+
+        const el = document.getElementById(`wrapper-${currentIndex}`);
+        el.className = `thumb-wrapper active ${type}`;
+
+        if (currentIndex < images.length - 1) showImage(currentIndex + 1);
+        else updateLabels();
+    }
+
+    function undo() {
+        if (history.length === 0) return;
+        const last = history.pop();
+        const item = images[last.index];
+
+        if (item.decision) counts[item.decision]--;
+        if (last.prevDecision) counts[last.prevDecision]++;
+        item.decision = last.prevDecision;
+
+        const el = document.getElementById(`wrapper-${last.index}`);
+        el.className = `thumb-wrapper ${item.decision || ''}`;
+
+        showImage(last.index);
+    }
+
+    folderInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files)
+            .filter(f => /\.(jpe?g|png|webp|jfif)$/i.test(f.name) && f.webkitRelativePath.split('/').length === 2)
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+
+        if (files.length === 0) return alert("No root-level images found.");
+
+        images = files.map(file => ({ file, decision: null }));
+        counts.total = images.length;
+        counts.keep = 0; counts.maybe = 0; counts.discard = 0;
+
+        document.getElementById('stat-total').innerText = counts.total;
+        document.getElementById('finish-btn').disabled = false;
+        thumbBar.innerHTML = '';
+
+        const fragment = document.createDocumentFragment();
+        images.forEach((_, i) => {
+            const w = document.createElement('div');
+            w.className = 'thumb-wrapper';
+            w.id = `wrapper-${i}`;
+            w.dataset.index = i;
+            w.onclick = () => showImage(i);
+            w.innerHTML = `<canvas class="thumb-canvas" id="canvas-${i}"></canvas>`;
+            fragment.appendChild(w);
+            thumbObserver.observe(w); // Observe for lazy loading
+        });
+        thumbBar.appendChild(fragment);
+        showImage(0);
+    });
+
+    // Efficient event listeners
     canvas.addEventListener('mousedown', (e) => {
         isZoomed = !isZoomed;
         const rect = canvas.getBoundingClientRect();
@@ -205,117 +257,28 @@
     canvas.addEventListener('mousemove', (e) => {
         if (isZoomed) {
             const rect = canvas.getBoundingClientRect();
-            window.requestAnimationFrame(() => draw(e.clientX - rect.left, e.clientY - rect.top));
+            requestAnimationFrame(() => draw(e.clientX - rect.left, e.clientY - rect.top));
         }
     });
 
-    window.addEventListener('resize', () => draw(canvas.width / 2, canvas.height / 2));
-
-    folderInput.addEventListener('change', (e) => {
-        const rawFiles = Array.from(e.target.files);
-
-        const files = rawFiles.filter(f => {
-            const isImage = /\.(jpe?g|png|webp|jfif)$/i.test(f.name);
-            const parts = f.webkitRelativePath.split('/');
-            const isRootLevel = parts.length === 2;
-            return isImage && isRootLevel;
-        }).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
-
-        if (files.length === 0) {
-            alert("No images found in the top-level of this folder.");
-            return;
-        }
-
-        images = files.map(file => ({ file, decision: null }));
-        thumbBar.innerHTML = '';
-
-        history = [];
-        document.getElementById('finish-btn').disabled = false;
-
-        const fragment = document.createDocumentFragment();
-        images.forEach((_, i) => {
-            const w = document.createElement('div');
-            w.className = 'thumb-wrapper';
-            w.id = `wrapper-${i}`;
-            w.onclick = () => showImage(i);
-            w.innerHTML = `<canvas class="thumb-canvas" id="canvas-${i}"></canvas>`;
-            fragment.appendChild(w);
-        });
-        thumbBar.appendChild(fragment);
-
-        showImage(0);
-        loadThumbnails();
-    });
-
-    function decide(type) {
-        if (!images[currentIndex]) return;
-        history.push({ index: currentIndex, prevDecision: images[currentIndex].decision });
-        images[currentIndex].decision = type;
-        updateUI();
-        if (currentIndex < images.length - 1) showImage(currentIndex + 1);
-    }
-
-    function undo() {
-        if (history.length === 0) return;
-        const last = history.pop();
-        images[last.index].decision = last.prevDecision;
-        showImage(last.index);
-    }
-
-    function updateUI() {
-        const item = images[currentIndex];
-        statusEl.innerText = item.decision ? item.decision : "";
-        statusEl.style.color = item.decision ? `var(--${item.decision})` : 'transparent';
-
-        document.querySelectorAll('.thumb-wrapper').forEach((w, i) => {
-            w.className = `thumb-wrapper ${i === currentIndex ? 'active' : ''} ${images[i].decision || ''}`;
-        });
-
-        const total = images.length;
-        const keep = images.filter(i => i.decision === 'keep').length;
-        const maybe = images.filter(i => i.decision === 'maybe').length;
-        const discard = images.filter(i => i.decision === 'discard').length;
-        const categorized = keep + maybe + discard;
-
-        document.getElementById('stat-total').innerText = total;
-        document.getElementById('stat-keep').innerText = keep;
-        document.getElementById('stat-maybe').innerText = maybe;
-        document.getElementById('stat-discard').innerText = discard;
-        document.getElementById('stat-remain').innerText = total - categorized;
-    }
+    window.addEventListener('resize', () => requestAnimationFrame(() => draw()));
 
     window.addEventListener('keydown', (e) => {
-        if (images.length === 0) return;
+        if (!images.length) return;
         const k = e.key.toLowerCase();
-
         if (k === 'a') decide('keep');
-        if (k === 'w') decide('maybe');
-        if (k === 'd') decide('discard');
-        if (k === 's') undo();
-
-        if (k === ' ') {
-            e.preventDefault();
-            isZoomed = !isZoomed;
-            draw(canvas.width/2, canvas.height/2);
-        }
-        if (e.key === 'ArrowLeft') showImage(currentIndex - 1);
-        if (e.key === 'ArrowRight') showImage(currentIndex + 1);
+        else if (k === 'w') decide('maybe');
+        else if (k === 'd') decide('discard');
+        else if (k === 's') undo();
+        else if (k === ' ') { e.preventDefault(); isZoomed = !isZoomed; draw(); }
+        else if (e.key === 'ArrowLeft') showImage(currentIndex - 1);
+        else if (e.key === 'ArrowRight') showImage(currentIndex + 1);
     });
 
     document.getElementById('finish-btn').onclick = () => {
-        const discarded = images.filter(i => i.decision === 'discard').map(i => i.file.name);
-        const maybes = images.filter(i => i.decision === 'maybe').map(i => i.file.name);
-
-        let script = "#!/bin/bash\nmkdir -p discard\nmkdir -p maybe\n";
-
-        if(discarded.length > 0) {
-            script += "\n# Discarded Images\n" + discarded.map(n => `mv "${n}" discard/`).join("\n");
-        }
-
-        if(maybes.length > 0) {
-            script += "\n\n# Maybe Images\n" + maybes.map(n => `mv "${n}" maybe/`).join("\n");
-        }
-
+        const script = "#!/bin/bash\nmkdir -p discard maybe\n" +
+            images.filter(i => i.decision === 'discard').map(i => `mv "${i.file.name}" discard/`).join("\n") + "\n" +
+            images.filter(i => i.decision === 'maybe').map(i => `mv "${i.file.name}" maybe/`).join("\n");
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([script], {type:'text/plain'}));
         a.download = "cleanup.sh"; a.click();
