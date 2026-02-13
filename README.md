@@ -6,6 +6,8 @@ Organize your photos with a swipe-style interface: keep, maybe, or discard image
 
 **Important:** The app **cannot move or delete your files directly**—it only generates a script you can run manually to organize your images.
 
+![Demo](demo.png)
+
 ----------
 
 ## Features
