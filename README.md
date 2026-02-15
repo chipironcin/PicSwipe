@@ -1,5 +1,7 @@
 # PicSwipe
 
+<img src="picswipe_logo.png" width="100" />
+
 **A vibe-coded browser app to quickly review and sort large photo albums fully offline.**
 
 Organize your photos with a swipe-style interface: keep, maybe, or discard images from your collection. Once you are done, it will generate a script that will sort the pictures into the right folders for easy manage.
